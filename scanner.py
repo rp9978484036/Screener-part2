@@ -7,7 +7,7 @@ and sends Telegram alerts for Trending and Retest200 screening lists.
 """
 
 import os, sys, time, json, logging, pytz
-from datetime import datetime, timezone, time as dt_time
+from datetime import datetime, timezone, time as dt_time, timedelta
 import pandas as pd
 import numpy as np
 import requests
@@ -58,12 +58,52 @@ if not IS_MANUAL:
     if not is_weekday():
         print("⏸ Market closed (Weekend) — scanner will not run now.")
         sys.exit(0)
-
     if not is_market_open():
         print("⏸ Market is closed — scanner will not run now.")
         sys.exit(0)
 else:
     logging.info("Manual run detected — skipping market/weekday checks.")
+
+# --- Bad symbol handling ---
+def mark_bad_symbol(symbol, reason=""):
+    today = datetime.today().strftime("%Y-%m-%d")
+    with open("bad_symbols.txt","a") as f:
+        f.write(f"{symbol}|{today}\n")
+    logging.info("Marked %s as bad symbol (%s)", symbol, reason)
+
+def load_universe(path='universe.csv'):
+    syms = []
+    if os.path.exists(path):
+        with open(path,'r') as f:
+            syms = [line.strip() for line in f if line.strip()]
+
+    # Load bad symbols with dates
+    bad = {}
+    if os.path.exists("bad_symbols.txt"):
+        with open("bad_symbols.txt","r") as b:
+            for line in b:
+                parts = line.strip().split("|")
+                if len(parts) == 2:
+                    sym, date_str = parts
+                    try:
+                        bad[sym] = datetime.strptime(date_str, "%Y-%m-%d")
+                    except:
+                        bad[sym] = datetime.today()
+                else:
+                    bad[parts[0]] = datetime.today()
+
+    # Filter: allow retry if older than 7 days
+    today = datetime.today()
+    filtered = []
+    skipped = 0
+    for s in syms:
+        if s in bad and (today - bad[s]).days < 7:
+            skipped += 1
+            continue
+        filtered.append(s)
+
+    logging.info('Loaded %d tickers (skipped %d bad symbols)', len(filtered), skipped)
+    return list(dict.fromkeys(filtered)) if filtered else syms
 
 # --- Utilities ---
 def send_telegram(text):
@@ -99,30 +139,22 @@ def calc_macd(series):
     signal = macd.ewm(span=9, adjust=False).mean()
     return macd, signal
 
-# --- Universe ---
-def load_universe(path='universe.csv'):
-    if os.path.exists(path):
-        with open(path,'r') as f:
-            syms = [line.strip() for line in f if line.strip()]
-            logging.info('Loaded %d tickers from %s', len(syms), path)
-            return list(dict.fromkeys(syms))
-    sample = ['INFY.NS','TCS.NS','RELIANCE.NS']
-    logging.warning('universe.csv missing - falling back to sample (%s)', ','.join(sample))
-    return sample
-
 # --- Fundamentals ---
 def fetch_fundamentals(symbol):
     res = {'symbol': symbol}
     try:
         tk = yf.Ticker(symbol)
         info = tk.info or {}
+        if not info:
+            mark_bad_symbol(symbol, "no fundamentals")
+            return res
         res['marketCap'] = info.get('marketCap')
         res['peg'] = info.get('pegRatio') or info.get('peg')
         res['pe'] = info.get('trailingPE') or info.get('forwardPE')
         res['priceToSales'] = info.get('priceToSalesTrailing12Months')
         res['evToEbitda'] = info.get('enterpriseToEbitda')
     except Exception as e:
-        logging.exception('Error fetching fundamentals for %s: %s', symbol, e)
+        mark_bad_symbol(symbol, f"fundamentals fetch failed: {e}")
     return res
 
 # --- Technicals ---
@@ -132,7 +164,7 @@ def fetch_technical(symbol):
         tk = yf.Ticker(symbol)
         hist = tk.history(period='1y', interval='1d', actions=False)
         if hist is None or hist.empty:
-            logging.warning('No history for %s', symbol)
+            mark_bad_symbol(symbol, "no price data")
             return out
         close = hist['Close']
         vol = hist['Volume']
@@ -152,7 +184,7 @@ def fetch_technical(symbol):
             out['1d_close'] = float(close.iloc[-2])
             out['1d_high'] = float(hist['High'].iloc[-2])
     except Exception as e:
-        logging.exception('Error fetching technicals for %s: %s', symbol, e)
+        mark_bad_symbol(symbol, f"technicals fetch failed: {e}")
     return out
 
 # --- Screening functions ---
@@ -182,7 +214,7 @@ def passes_trending(row):
         if not (row['volume'] > 1.5 * row['avgvol1w']): return False
         return True
     except Exception as e:
-        logging.exception('Error in trending check: %s', e)
+        logging.info("Trending check failed for %s: %s", row.get('symbol'), e)
         return False
 
 def passes_retest200(row):
@@ -196,7 +228,7 @@ def passes_retest200(row):
         if row.get('macd') is None or row.get('macd_signal') is None or not (row['macd'] > row['macd_signal']): return False
         return True
     except Exception as e:
-        logging.exception('Error in retest200: %s', e)
+        logging.info("Retest200 check failed for %s: %s", row.get('symbol'), e)
         return False
 
 # --- Google Sheets ---
