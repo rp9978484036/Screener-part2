@@ -147,7 +147,7 @@ def fetch_fundamentals(symbol):
         info = tk.info or {}
         if not info:
             mark_bad_symbol(symbol, "no fundamentals")
-            return res
+            return {}
         res['marketCap'] = info.get('marketCap')
         res['peg'] = info.get('pegRatio') or info.get('peg')
         res['pe'] = info.get('trailingPE') or info.get('forwardPE')
@@ -155,6 +155,7 @@ def fetch_fundamentals(symbol):
         res['evToEbitda'] = info.get('enterpriseToEbitda')
     except Exception as e:
         mark_bad_symbol(symbol, f"fundamentals fetch failed: {e}")
+        return {}
     return res
 
 # --- Technicals ---
@@ -165,7 +166,7 @@ def fetch_technical(symbol):
         hist = tk.history(period='1y', interval='1d', actions=False)
         if hist is None or hist.empty:
             mark_bad_symbol(symbol, "no price data")
-            return out
+            return {}
         close = hist['Close']
         vol = hist['Volume']
         out['latest_close'] = float(close.iloc[-1])
@@ -185,6 +186,7 @@ def fetch_technical(symbol):
             out['1d_high'] = float(hist['High'].iloc[-2])
     except Exception as e:
         mark_bad_symbol(symbol, f"technicals fetch failed: {e}")
+        return {}
     return out
 
 # --- Screening functions ---
@@ -270,6 +272,12 @@ def main():
     for sym in universe:
         f = fetch_fundamentals(sym)
         t = fetch_technical(sym)
+
+        # ✅ Skip if no valid fundamentals or technicals
+        if not f or not t or not f.get("marketCap") or not t.get("latest_close"):
+            logging.info("Skipping %s (no valid data)", sym)
+            continue
+
         merged = {**f, **t}
         all_results.append(merged)
         time.sleep(0.5)
