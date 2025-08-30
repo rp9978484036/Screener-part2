@@ -1,47 +1,3 @@
-HashMob
-hashmob_219_65792
-Online
-
-Amit Viradiya — 9:58 AM
-TELEGRAM_TOKEN
-7548150134:AAEIIqD7TbtHDxP9_8pco1VCFb1JpvMjw88
-
-TELEGRAM_CHAT_ID
-544581129
-
-GOOGLE_SHEET_ID
-1WD4ZvggAYzXSoTpPEjWP3lTflbif-vzWdVTkCwUYaNA
-GOOGLE_CREDENTIALS_JSON
-{
-  "type": "service_account",
-  "project_id": "dulcet-airline-470109-m3",
-  "private_key_id": "d8ed5687b75745724a92abbe4625f289e4ad9744",
-  "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQCvCO8rmLD2QgGe\n2rnPPTxurmxOU5c1dinttfFzoX7voyxtS8lhTuBRKCc/M9NEafOWsHfEyPMRx/fP\nh2BEAcolaYYUZqAmrJwCGE6T9wfeF0vV7QnWqKBs2YOipj22Og0q8ad18U9XnMZ6\nAXyjHxO+LJPv9KmRC1LJEWk1zR3ZQbEo/bRvxayAHH82sNSh6V5t3B2uq/fHWU7o\nROVbOfAGD1WIMpszL5j7DM4MSsCIC9CoifU4IMHxHrFBJrj2bnJUPpyAQyrR+z3o\nji+J9CRwOlbzTY0MJM6kk+aoyO4nJItZRsvKuqNSCNeBjYvrAuQDExVKsyH76gXy\nNO9FudKTAgMBAAECggEAQ1isrZmSfS3ocba2x4ZIOk3iXkDLbUaJ22yl+leo/4tJ\nDMScN1Sh+pf4gdju8OPTVaeQbabj33ORZcgwwfnuTXbMoAzckgTYAfZYRZZG8K0G\nAMmzf2RiVX9bprlQBU1Qw7U3OaofXRZ1R3xK+Hh8oC+GvEzm8Wfp8nNAh/LkCTMZ\n9D2JoAWLRw9j7vNwRKs1/zI9N6B5RXNAfsXYZHdjexFJuC2NWcoKJG60IM/v84GD\n/+DOMMbnu9AnvGDMJ4PaK7BGEwHzNGXxhQw3IliS4s2aEospAGBNu5DSwDtNqTA5\n5Kj9G77EebZWBgOXRIliKJ4nx5h7JSeBZCzDnz5EAQKBgQDm6ReaWzD4xLQ8KMsT\nuYfzKd7z6pbPuYEDgHgkHTj8oRQk54EIFr79oTg7l9YUCaL/SLQ0IRXXH1+DG2tZ\naVG0pxvCPZza/t4N+SYmNkfutl4jIgflJxIc2WGq9P33uVk2Og10FnsJ+UBVF1rD\nS5oyx60mfW5PTipTwevh+l+uzQKBgQDCDaFAHYX309Ou7dKYDcluu8iR8zZyY88j\nQ1mDvItEGbmEWU9oJz+C1qd9gWjO5TeF/VmCiS8N4MX3cQQO5fcJ3Rx/6Y2O8rI+\ncWDtkJbgp/y4sGgjOr676B/lHOi1u8kG8Lzl81DQps4yiHn1X2b//lGfzJ3PdDgo\nUucvm+bG3wKBgEwZ4CSID2C9e2UkUKGEkPCsCQW8d82oJoPf8Dh+xQxFjh0Hizf+\nPx3Z522EghKChoy6CmHv0YHfnhvYio2iL0JpnLVsluh5/Pb/+Pm5BAYBZo8PpSh5\nsvd9ETpFmfntxSAhC9QJoK1Nz0z78HbS0NQRiNhZmGRcr4iBLduBJ821AoGBAIed\nkOjG+T5GmrSw3jGHyROLRtPBHnb5C+UAB4oKdWWleMJmzBjk/PzKWQlcLEwTYydP\n9INGrkzLnm6cXBKxYmFRVr6KEXUqZalAAVZlaxwcKoFEP7MHNg8KXWf4OSXw07/2\n9Hzb+8mmGYq1WE5EWy5ipNbB4DQAa9K6hXj/QlwPAoGBANuf9brKCxpx3CbcWaJK\nQciwrWhKttZTmWpgH+nTwn45GYgg+FSlf96vfCN065jEsG3ReC9U9zXWuJwk0Tzl\n1EQ4PNk1KMC7PXGeAB/5B2gLHj/LcLEMv53a5UP7sPWIiJM7C1uGwCLWVhGuT3Ec\nUJmSzLU2+aTAVih+2YwalJKv\n-----END PRIVATE KEY-----\n",
-  "client_email": "screener@dulcet-airline-470109-m3.iam.gserviceaccount.com",
-Expand
-message.txt
-3 KB
-#!/usr/bin/env python3
-"""Stock Scanner for GitHub Actions (Plan B)
-
-Uses yfinance for price + technicals. Attempts fundamentals from yfinance where possible.
-Reads ticker universe from universe.csv (one symbol per line). Writes results to Google Sheets
-and sends Telegram alerts for Trending and Retest200 screening lists.
-Expand
-scanner.py
-12 KB
-name: Stock Scanner Full
-
-on:
-  schedule:
-    - cron: '15 3 * * 1-5'   # 08:45 IST full fundamentals run (03:15 UTC)
-    - cron: '0 * * * 1-5'    # hourly run (UTC) on weekdays
-Expand
-scanner.yml
-2 KB
-﻿
-Amit Viradiya
-amitviradiya
 #!/usr/bin/env python3
 """Stock Scanner for GitHub Actions (Plan B)
 
@@ -339,5 +295,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-scanner.py
-12 KB
