@@ -5,6 +5,7 @@ Uses yfinance for price + technicals. Attempts fundamentals from yfinance where 
 Reads ticker universe from universe.csv (one symbol per line). Writes results to Google Sheets
 and sends Telegram alerts for Trending and Retest200 screening lists.
 """
+
 import os, sys, time, json, logging, pytz
 from datetime import datetime, timezone, time as dt_time
 import pandas as pd
@@ -17,16 +18,13 @@ from googleapiclient.discovery import build
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
 
-# Detect if manual run (workflow_dispatch)
-IS_MANUAL = os.getenv("GITHUB_EVENT_NAME") == "workflow_dispatch"
-
-# Config from env / secrets
+# --- Config from env / secrets ---
 SHEET_ID = os.getenv('GOOGLE_SHEET_ID')
 TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
 TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
 CREDENTIALS_PATH = 'credentials.json'  # written by GitHub Actions from secret
 
-# Screening thresholds (your specs)
+# Screening thresholds
 MARKETCAP_MIN_CRORE = float(os.getenv('MARKETCAP_MIN_CRORE', '1000'))
 PEG_MAX = float(os.getenv('PEG_MAX', '1.0'))
 DEBT_EQUITY_MAX = float(os.getenv('DEBT_EQUITY_MAX', '0.5'))
@@ -38,9 +36,12 @@ OPM_MIN = float(os.getenv('OPM_MIN', '15'))
 PRICE_TO_SALES_MAX = float(os.getenv('PRICE_TO_SALES_MAX', '10'))
 EV_EBITDA_MAX = float(os.getenv('EV_EBITDA_MAX', '25'))
 
+# --- Run control ---
+IS_MANUAL = os.getenv("GITHUB_EVENT_NAME") == "workflow_dispatch"
+
 # Market hours in IST
-MARKET_OPEN = datetime.time(9, 0)     # 9:00 AM
-MARKET_CLOSE = datetime.time(15, 30)  # 3:30 PM
+MARKET_OPEN = dt_time(9, 0)     # 9:00 AM
+MARKET_CLOSE = dt_time(15, 30)  # 3:30 PM
 
 def is_market_open():
     ist = pytz.timezone("Asia/Kolkata")
@@ -51,8 +52,8 @@ def is_weekday():
     ist = pytz.timezone("Asia/Kolkata")
     today = datetime.now(ist).weekday()
     return today < 5  # Mon–Fri
-    
-# Skip checks only if it's not a manual run
+
+# --- Guard: only restrict scheduled runs ---
 if not IS_MANUAL:
     if not is_weekday():
         print("⏸ Market closed (Weekend) — scanner will not run now.")
@@ -61,8 +62,10 @@ if not IS_MANUAL:
     if not is_market_open():
         print("⏸ Market is closed — scanner will not run now.")
         sys.exit(0)
+else:
+    logging.info("Manual run detected — skipping market/weekday checks.")
 
-# Utilities
+# --- Utilities ---
 def send_telegram(text):
     if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
         logging.warning('Telegram not configured')
@@ -96,21 +99,19 @@ def calc_macd(series):
     signal = macd.ewm(span=9, adjust=False).mean()
     return macd, signal
 
-# Read universe
+# --- Universe ---
 def load_universe(path='universe.csv'):
     if os.path.exists(path):
         with open(path,'r') as f:
             syms = [line.strip() for line in f if line.strip()]
             logging.info('Loaded %d tickers from %s', len(syms), path)
             return list(dict.fromkeys(syms))
-    # fallback sample
     sample = ['INFY.NS','TCS.NS','RELIANCE.NS']
     logging.warning('universe.csv missing - falling back to sample (%s)', ','.join(sample))
     return sample
 
-# Fetch fundamentals (best-effort using yfinance). Replace for production.
+# --- Fundamentals ---
 def fetch_fundamentals(symbol):
-    # returns a dict of metrics; many may be None if vendor lacks them
     res = {'symbol': symbol}
     try:
         tk = yf.Ticker(symbol)
@@ -120,12 +121,11 @@ def fetch_fundamentals(symbol):
         res['pe'] = info.get('trailingPE') or info.get('forwardPE')
         res['priceToSales'] = info.get('priceToSalesTrailing12Months')
         res['evToEbitda'] = info.get('enterpriseToEbitda')
-        # Some items like promoter holding, pledged % not in yfinance -> left None
     except Exception as e:
         logging.exception('Error fetching fundamentals for %s: %s', symbol, e)
     return res
 
-# Fetch price history and compute technicals
+# --- Technicals ---
 def fetch_technical(symbol):
     out = {'symbol': symbol}
     try:
@@ -155,9 +155,8 @@ def fetch_technical(symbol):
         logging.exception('Error fetching technicals for %s: %s', symbol, e)
     return out
 
-# Screening functions
+# --- Screening functions ---
 def passes_fundamental(row):
-    # check essentials, convert marketCap to crores if present (marketCap in INR)
     mc = row.get('marketCap')
     if mc is None:
         return False
@@ -200,7 +199,7 @@ def passes_retest200(row):
         logging.exception('Error in retest200: %s', e)
         return False
 
-# Google Sheets helpers
+# --- Google Sheets ---
 def sheets_client():
     if not os.path.exists(CREDENTIALS_PATH):
         logging.error('Google credentials file not found: %s', CREDENTIALS_PATH)
@@ -209,26 +208,18 @@ def sheets_client():
     service = build('sheets', 'v4', credentials=creds)
     return service
 
-from datetime import datetime
-
-def append_df_to_sheet(service, tab, df):
+def write_df_to_sheet(service, tab, df):
     if service is None:
-        logging.warning('No sheets service; skipping append for %s', tab)
+        logging.warning('No sheets service; skipping write for %s', tab)
         return
-
     if df.empty:
-        logging.info("No data to append for %s", tab)
+        logging.info("No data to write for %s", tab)
         return
-
-    # Add timestamp column
     df = df.copy()
     df.insert(0, "Timestamp", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
-
     values = [df.columns.tolist()] + df.fillna('').values.tolist()
     rng = f"{tab}!A1"
-
     try:
-        # Use append instead of update
         service.spreadsheets().values().append(
             spreadsheetId=SHEET_ID,
             range=rng,
@@ -236,10 +227,11 @@ def append_df_to_sheet(service, tab, df):
             insertDataOption='INSERT_ROWS',
             body={'values': values}
         ).execute()
-        logging.info('Appended %d rows to %s', len(df), tab)
+        logging.info('Wrote %d rows to %s', len(df), tab)
     except Exception as e:
-        logging.exception('Error appending to sheet %s: %s', tab, e)
+        logging.exception('Error writing to sheet %s: %s', tab, e)
 
+# --- Main ---
 def main():
     universe = load_universe()
     all_results = []
@@ -248,28 +240,23 @@ def main():
         t = fetch_technical(sym)
         merged = {**f, **t}
         all_results.append(merged)
-        time.sleep(0.5)  # polite
+        time.sleep(0.5)
 
     df_all = pd.DataFrame(all_results)
     df_all_sorted = df_all.sort_values(by=['symbol'])
-    # Fundamental strong
     fund = [r for r in all_results if passes_fundamental(r)]
     df_fund = pd.DataFrame(fund)
-    # Trending
     trend = [r for r in fund if passes_trending(r)]
     df_trend = pd.DataFrame(trend)
-    # Retest200
     ret = [r for r in fund if passes_retest200(r)]
     df_retest = pd.DataFrame(ret)
 
-    # Write to Sheets
     svc = sheets_client()
-    write_df_to_sheet(svc, 'AllStocks', df_all_sorted if not df_all_sorted.empty else pd.DataFrame())
-    write_df_to_sheet(svc, 'Fundamental_Strong', df_fund if not df_fund.empty else pd.DataFrame())
-    write_df_to_sheet(svc, 'Trending', df_trend if not df_trend.empty else pd.DataFrame())
-    write_df_to_sheet(svc, 'Retest200', df_retest if not df_retest.empty else pd.DataFrame())
+    write_df_to_sheet(svc, 'AllStocks', df_all_sorted)
+    write_df_to_sheet(svc, 'Fundamental_Strong', df_fund)
+    write_df_to_sheet(svc, 'Trending', df_trend)
+    write_df_to_sheet(svc, 'Retest200', df_retest)
 
-    # Alerts (simple de-dup: use a file 'state.json' in workspace)
     state = {}
     if os.path.exists('state.json'):
         try:
@@ -277,14 +264,8 @@ def main():
                 state = json.load(f)
         except:
             state = {}
-    new_trend = []
-    for r in df_trend['symbol'].tolist() if not df_trend.empty else []:
-        if 'trending' not in state or r not in state.get('trending',[]):
-            new_trend.append(r)
-    new_retest = []
-    for r in df_retest['symbol'].tolist() if not df_retest.empty else []:
-        if 'retest200' not in state or r not in state.get('retest200',[]):
-            new_retest.append(r)
+    new_trend = [r for r in df_trend['symbol'].tolist() if r not in state.get('trending',[])] if not df_trend.empty else []
+    new_retest = [r for r in df_retest['symbol'].tolist() if r not in state.get('retest200',[])] if not df_retest.empty else []
     msg = ''
     if new_trend:
         msg += f"*Trending* ({len(new_trend)}):\n" + '\n'.join(new_trend) + '\n\n'
@@ -295,7 +276,6 @@ def main():
             sheet_url = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}"
             msg += f"Sheet: {sheet_url}"
         send_telegram(msg)
-        # update state
         state.setdefault('trending',[]).extend(new_trend)
         state.setdefault('retest200',[]).extend(new_retest)
         try:
