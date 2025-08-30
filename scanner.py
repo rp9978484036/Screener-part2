@@ -6,7 +6,7 @@ Reads ticker universe from universe.csv (one symbol per line). Writes results to
 and sends Telegram alerts for Trending and Retest200 screening lists.
 """
 import os, sys, time, json, logging, pytz
-from datetime import datetime, timezone
+from datetime import datetime, timezone, time as dt_time
 import pandas as pd
 import numpy as np
 import requests
@@ -16,6 +16,9 @@ from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
+
+# Detect if manual run (workflow_dispatch)
+IS_MANUAL = os.getenv("GITHUB_EVENT_NAME") == "workflow_dispatch"
 
 # Config from env / secrets
 SHEET_ID = os.getenv('GOOGLE_SHEET_ID')
@@ -41,13 +44,23 @@ MARKET_CLOSE = datetime.time(15, 30)  # 3:30 PM
 
 def is_market_open():
     ist = pytz.timezone("Asia/Kolkata")
-    now = datetime.datetime.now(ist).time()
+    now = datetime.now(ist).time()
     return MARKET_OPEN <= now <= MARKET_CLOSE
 
-# Check before running scanner
-if not is_market_open():
-    print("⏸ Market is closed — scanner will not run now.")
-    sys.exit(0)
+def is_weekday():
+    ist = pytz.timezone("Asia/Kolkata")
+    today = datetime.now(ist).weekday()
+    return today < 5  # Mon–Fri
+    
+# Skip checks only if it's not a manual run
+if not IS_MANUAL:
+    if not is_weekday():
+        print("⏸ Market closed (Weekend) — scanner will not run now.")
+        sys.exit(0)
+
+    if not is_market_open():
+        print("⏸ Market is closed — scanner will not run now.")
+        sys.exit(0)
 
 # Utilities
 def send_telegram(text):
